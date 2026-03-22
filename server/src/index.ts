@@ -1,7 +1,8 @@
 /// <reference path="./types/express.d.ts" />
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import { pathToFileURL } from "node:url";
@@ -28,6 +29,7 @@ import { logger } from "./middleware/logger.js";
 import { setupLiveEventsWebSocketServer } from "./realtime/live-events-ws.js";
 import { heartbeatService, reconcilePersistedRuntimeServicesOnStartup, routineService } from "./services/index.js";
 import { createStorageServiceFromConfig } from "./storage/index.js";
+import { resolvePaperclipEnvPath } from "./paths.js";
 import { printStartupBanner } from "./startup-banner.js";
 import { getBoardClaimWarningUrl, initializeBoardClaimChallenge } from "./board-claim.js";
 
@@ -445,9 +447,22 @@ export async function startServer(): Promise<StartedServer> {
     const betterAuthSecret =
       process.env.BETTER_AUTH_SECRET?.trim() ?? process.env.PAPERCLIP_AGENT_JWT_SECRET?.trim();
     if (!betterAuthSecret) {
-      throw new Error(
-        "authenticated mode requires BETTER_AUTH_SECRET (or PAPERCLIP_AGENT_JWT_SECRET) to be set",
-      );
+      // Auto-generate and persist so the server is self-sufficient on first run without external setup
+      const generated = randomBytes(32).toString("hex");
+      process.env.PAPERCLIP_AGENT_JWT_SECRET = generated;
+      const envFilePath = resolvePaperclipEnvPath();
+      const envDir = dirname(envFilePath);
+      mkdirSync(envDir, { recursive: true });
+      const envEntry = `PAPERCLIP_AGENT_JWT_SECRET=${generated}\n`;
+      if (!existsSync(envFilePath)) {
+        writeFileSync(envFilePath, `# Paperclip environment variables\n# Auto-generated on first startup\n${envEntry}`, { mode: 0o600 });
+      } else {
+        const existing = readFileSync(envFilePath, "utf-8");
+        if (!existing.includes("PAPERCLIP_AGENT_JWT_SECRET")) {
+          writeFileSync(envFilePath, existing.endsWith("\n") ? existing + envEntry : `${existing}\n${envEntry}`, { mode: 0o600 });
+        }
+      }
+      logger.info({ envFilePath }, "Auto-generated PAPERCLIP_AGENT_JWT_SECRET for authenticated mode");
     }
     const derivedTrustedOrigins = deriveAuthTrustedOrigins(config);
     const envTrustedOrigins = (process.env.BETTER_AUTH_TRUSTED_ORIGINS ?? "")
