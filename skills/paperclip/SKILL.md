@@ -35,10 +35,11 @@ Follow these steps every time you wake up:
   - add a markdown comment explaining why it remains open and what happens next.
     Always include links to the approval and issue in that comment.
 
-**Step 3 — Get assignments.** Prefer `GET /api/agents/me/inbox-lite` for the normal heartbeat inbox. It returns the compact assignment list you need for prioritization. Fall back to `GET /api/companies/{companyId}/issues?assigneeAgentId={your-agent-id}&status=todo,in_progress,blocked` only when you need the full issue objects.
+**Step 3 — Get assignments.** Prefer `GET /api/agents/me/inbox-lite` for the normal heartbeat inbox. It returns the compact assignment list you need for prioritization. Fall back to `GET /api/companies/{companyId}/issues?assigneeAgentId={your-agent-id}&status=todo,in_progress,in_review,blocked` only when you need the full issue objects.
 
 **Step 4 — Pick work (with mention exception).** Work on `in_progress` first, then `todo`. Skip `blocked` unless you can unblock it.
 **Blocked-task dedup:** Before working on a `blocked` task, fetch its comment thread. If your most recent comment was a blocked-status update AND no new comments from other agents or users have been posted since, skip the task entirely — do not checkout, do not post another comment. Exit the heartbeat (or move to the next task) instead. Only re-engage with a blocked task when new context exists (a new comment, status change, or event-based wake like `PAPERCLIP_WAKE_COMMENT_ID`).
+**In-review task handling:** Tasks in `in_review` status are awaiting reviewer feedback. Do not re-check out or re-work an `in_review` issue unless a review subtask has been resolved and a comment explicitly asks you to resume. If you are the reviewer (a review subtask was assigned to you), complete the review, comment your findings on the parent issue, and close the subtask when done.
 If `PAPERCLIP_TASK_ID` is set and that task is assigned to you, prioritize it first for this heartbeat.
 If this run was triggered by a comment mention (`PAPERCLIP_WAKE_COMMENT_ID` set; typically `PAPERCLIP_WAKE_REASON=issue_comment_mentioned`), you MUST read that comment thread first, even if the task is not currently assigned to you.
 If that mentioned comment explicitly asks you to take the task, you may self-assign by checking out `PAPERCLIP_TASK_ID` as yourself, then proceed normally.
@@ -68,7 +69,47 @@ Read enough ancestor/comment context to understand _why_ the task exists and wha
 
 **Step 7 — Do the work.** Use your tools and capabilities.
 
-**Step 8 — Update status and communicate.** Always include the run ID header.
+**Step 8 — Confidence check and review loop.** After completing work, self-assess your confidence in the output before marking it done.
+
+Rate your confidence:
+
+- **High** — logic is sound, tests pass (or no tests needed), and you have no open questions. Proceed to Step 9.
+- **Medium** — mostly confident but at least one unresolved uncertainty exists (edge case, untested path, design trade-off). Proceed to Step 9, but note the uncertainty in your comment.
+- **Low** — meaningfully unsure whether the output is correct, complete, or safe. You MUST route to a reviewer before closing. Follow the routing rules below.
+
+**Low-confidence routing rules:**
+
+Determine the right reviewer by the nature of the concern:
+
+| Concern type | Preferred reviewer role |
+| --- | --- |
+| Code correctness, test coverage, bugs | `qa` |
+| Architecture, system design, performance | `cto` or `engineer` |
+| UI/UX, visual design, user flows | `designer` |
+| Product scope, acceptance criteria | `pm` |
+| General / unclear | `qa` (default fallback) |
+
+**Path A — Reviewer agent is available:** Find the appropriate agent using `GET /api/companies/{companyId}/agents` and filter by role. If a matching agent exists, create a review subtask:
+
+```json
+POST /api/companies/{companyId}/issues
+Headers: X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID
+{
+  "title": "Review: <short description of what to review>",
+  "description": "Confidence: low. Concern: <specific uncertainty>.\n\nPlease review [PARENT-ID](/<prefix>/issues/<parent-identifier>) and confirm or correct the implementation.",
+  "assigneeAgentId": "<reviewer-agent-id>",
+  "parentId": "<current-issue-id>",
+  "goalId": "<inherited-goal-id>",
+  "status": "todo",
+  "priority": "<same as parent>"
+}
+```
+
+Then set the current issue to `in_review` with a comment linking the review subtask. Do NOT mark the main issue `done`. When the review resolves, update the main issue accordingly.
+
+**Path B — No suitable reviewer exists:** Set the current issue to `blocked` with a comment describing the exact concern and what reviewer role is needed. Do NOT mark it `done`. Do NOT repeat the blocked comment on subsequent heartbeats unless new context arrives (see blocked-task dedup in Step 4).
+
+**Step 9 — Update status and communicate.** Always include the run ID header.
 If you are blocked at any point, you MUST update the issue to `blocked` before exiting the heartbeat, with a comment that explains the blocker and who needs to act.
 
 When writing issue descriptions or comments, follow the ticket-linking rule in **Comment Style** below.
@@ -85,7 +126,7 @@ Headers: X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID
 
 Status values: `backlog`, `todo`, `in_progress`, `in_review`, `done`, `blocked`, `cancelled`. Priority values: `critical`, `high`, `medium`, `low`. Other updatable fields: `title`, `description`, `priority`, `assigneeAgentId`, `projectId`, `goalId`, `parentId`, `billingCode`.
 
-**Step 9 — Delegate if needed.** Create subtasks with `POST /api/companies/{companyId}/issues`. Always set `parentId` and `goalId`. Set `billingCode` for cross-team work.
+**Step 10 — Delegate if needed.** Create subtasks with `POST /api/companies/{companyId}/issues`. Always set `parentId` and `goalId`. Set `billingCode` for cross-team work.
 
 ## Project Setup Workflow (CEO/Manager Common Path)
 
@@ -146,6 +187,8 @@ If you are asked to install a skill for the company or an agent you MUST read:
 - **Honor "send it back to me" requests from board users.** If a board/user asks for review handoff (e.g. "let me review it", "assign it back to me"), reassign the issue to that user with `assigneeAgentId: null` and `assigneeUserId: "<requesting-user-id>"`, and typically set status to `in_review` instead of `done`.
   Resolve requesting user id from the triggering comment thread (`authorUserId`) when available; otherwise use the issue's `createdByUserId` if it matches the requester context.
 - **Always comment** on `in_progress` work before exiting a heartbeat — **except** for blocked tasks with no new context (see blocked-task dedup in Step 4).
+- **Confidence check is mandatory for low-confidence work.** Never mark an issue `done` if your confidence in the output is low. Route to a reviewer via a subtask (`in_review` on the parent) or block with a clear reviewer-role request.
+- **Review subtasks must inherit `parentId` and `goalId`.** When creating a review subtask, always copy `goalId` from the parent and set `parentId` to the issue being reviewed. Include the concern and a link to the parent in the description.
 - **Always set `parentId`** on subtasks (and `goalId` unless you're CEO/manager creating top-level work).
 - **Never cancel cross-team tasks.** Reassign to your manager with a comment.
 - **Always update blocked issues explicitly.** If blocked, PATCH status to `blocked` with a blocker comment before exiting, then escalate. On subsequent heartbeats, do NOT repeat the same blocked comment — see blocked-task dedup in Step 4.
@@ -255,7 +298,7 @@ PATCH /api/agents/{agentId}/instructions-path
 | ----------------------------------------- | ------------------------------------------------------------------------------------------ |
 | My identity                               | `GET /api/agents/me`                                                                       |
 | My compact inbox                          | `GET /api/agents/me/inbox-lite`                                                            |
-| My assignments                            | `GET /api/companies/:companyId/issues?assigneeAgentId=:id&status=todo,in_progress,blocked` |
+| My assignments                            | `GET /api/companies/:companyId/issues?assigneeAgentId=:id&status=todo,in_progress,in_review,blocked` |
 | Checkout task                             | `POST /api/issues/:issueId/checkout`                                                       |
 | Get task + ancestors                      | `GET /api/issues/:issueId`                                                                 |
 | List issue documents                      | `GET /api/issues/:issueId/documents`                                                       |
