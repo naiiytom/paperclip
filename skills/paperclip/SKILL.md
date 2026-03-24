@@ -57,6 +57,8 @@ Headers: Authorization: Bearer $PAPERCLIP_API_KEY, X-Paperclip-Run-Id: $PAPERCLI
 
 If already checked out by you, returns normally. If owned by another agent: `409 Conflict` — stop, pick a different task. **Never retry a 409.**
 
+**Resuming after review:** If you are re-engaging an issue that was previously set to `in_review` (e.g., a reviewer has commented and asked you to resume), use `"expectedStatuses": ["in_review"]` instead of the default list.
+
 **Step 6 — Understand context.** Prefer `GET /api/issues/{issueId}/heartbeat-context` first. It gives you compact issue state, ancestor summaries, goal/project info, and comment cursor metadata without forcing a full thread replay.
 
 Use comments incrementally:
