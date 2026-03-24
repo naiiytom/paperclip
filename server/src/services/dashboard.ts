@@ -6,8 +6,8 @@ import { budgetService } from "./budgets.js";
 
 export function dashboardService(db: Db) {
   const budgets = budgetService(db);
-  return {
-    summary: async (companyId: string) => {
+
+  async function summary(companyId: string) {
       const company = await db
         .select()
         .from(companies)
@@ -104,6 +104,12 @@ export function dashboardService(db: Db) {
           pausedProjects: budgetOverview.pausedProjectCount,
         },
       };
+  }
+
+  return {
+    summary,
+    summaryAll: async (companyIds: string[]) => {
+      return Promise.all(companyIds.map((id) => summary(id)));
     },
   };
 }
