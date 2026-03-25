@@ -1,0 +1,51 @@
+# Cloud deployment compose file.
+#
+# Designed for internet-facing deployments where the database is managed
+# externally (AWS RDS, Supabase, Neon, DigitalOcean Managed Postgres, etc.).
+#
+# Required environment variables:
+#   DATABASE_URL        PostgreSQL connection string
+#   PAPERCLIP_PUBLIC_URL  Public HTTPS URL of this instance (e.g. https://paperclip.example.com)
+#   BETTER_AUTH_SECRET  Random 32+ character secret for session signing
+#
+# Optional:
+#   ANTHROPIC_API_KEY   Anthropic API key (for Claude Local adapter)
+#   OPENAI_API_KEY      OpenAI API key (for Codex Local adapter)
+#   PAPERCLIP_PORT      Host port to bind (default: 3100)
+#   PAPERCLIP_DATA_DIR  Host path for persistent data (default: ./data/paperclip)
+
+services:
+  paperclip:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: paperclip
+    restart: unless-stopped
+    ports:
+      - "${PAPERCLIP_PORT:-3100}:3100"
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "3100"
+      SERVE_UI: "true"
+      PAPERCLIP_HOME: "/paperclip"
+
+      # Deployment mode: authenticated + public for internet-facing installs
+      PAPERCLIP_DEPLOYMENT_MODE: "authenticated"
+      PAPERCLIP_DEPLOYMENT_EXPOSURE: "public"
+
+      # Required — set these before starting
+      DATABASE_URL: "${DATABASE_URL}"
+      PAPERCLIP_PUBLIC_URL: "${PAPERCLIP_PUBLIC_URL}"
+      BETTER_AUTH_SECRET: "${BETTER_AUTH_SECRET}"
+
+      # Optional LLM provider keys
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+    volumes:
+      - "${PAPERCLIP_DATA_DIR:-./data/paperclip}:/paperclip"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3100/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3

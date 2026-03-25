@@ -75,6 +75,7 @@
               "deploy/local-development",
               "deploy/tailscale-private-access",
               "deploy/docker",
+              "deploy/cloud",
               "deploy/deployment-modes",
               "deploy/database",
               "deploy/secrets",
