@@ -1,0 +1,104 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paperclip
+  namespace: paperclip
+  labels:
+    app: paperclip
+spec:
+  replicas: 1
+  # Paperclip uses a local volume for data — RollingUpdate requires ReadWriteMany storage.
+  # Use Recreate unless you have switched to an RWX volume or external blob storage.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: paperclip
+  template:
+    metadata:
+      labels:
+        app: paperclip
+    spec:
+      securityContext:
+        runAsUser: 1000   # node user inside the image
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: paperclip
+          # Replace with a pinned image tag from your registry, e.g.:
+          #   ghcr.io/paperclip-ai/paperclip:1.2.3
+          image: paperclip:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3100
+              protocol: TCP
+          env:
+            - name: HOST
+              value: "0.0.0.0"
+            - name: PORT
+              value: "3100"
+            - name: SERVE_UI
+              value: "true"
+            - name: PAPERCLIP_HOME
+              value: "/paperclip"
+            - name: PAPERCLIP_DEPLOYMENT_MODE
+              value: "authenticated"
+            - name: PAPERCLIP_DEPLOYMENT_EXPOSURE
+              value: "public"
+            # Set PAPERCLIP_PUBLIC_URL to your ingress hostname, e.g.:
+            #   https://paperclip.example.com
+            - name: PAPERCLIP_PUBLIC_URL
+              value: "https://paperclip.example.com"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: paperclip-secrets
+                  key: database-url
+            - name: BETTER_AUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: paperclip-secrets
+                  key: better-auth-secret
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: paperclip-secrets
+                  key: anthropic-api-key
+                  optional: true
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: paperclip-secrets
+                  key: openai-api-key
+                  optional: true
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "2"
+              memory: "2Gi"
+          volumeMounts:
+            - name: paperclip-data
+              mountPath: /paperclip
+      volumes:
+        - name: paperclip-data
+          persistentVolumeClaim:
+            claimName: paperclip-data

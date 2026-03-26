@@ -54,6 +54,8 @@ ENV NODE_ENV=production \
 
 VOLUME ["/paperclip"]
 EXPOSE 3100
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD curl -f http://localhost:3100/api/health || exit 1
 
 USER node
 CMD ["node", "--import", "./server/node_modules/tsx/dist/loader.mjs", "server/dist/index.js"]

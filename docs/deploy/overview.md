@@ -13,6 +13,19 @@ Paperclip supports three deployment configurations, from zero-friction local to 
 | `authenticated` + `private` | Login required | Private network (Tailscale, VPN, LAN) |
 | `authenticated` + `public` | Login required | Internet-facing cloud deployment |
 
+## Cloud Deployment
+
+Paperclip ships deployment artifacts for popular cloud targets:
+
+| Target | File(s) |
+|--------|---------|
+| Docker Compose on a VM | `docker-compose.cloud.yml`, `deploy/vm-setup.sh` |
+| Fly.io | `fly.toml` |
+| Render | `render.yaml` |
+| Kubernetes (EKS, GKE, AKS, …) | `deploy/kubernetes/` |
+
+See the [Cloud Deployment](/deploy/cloud) guide for step-by-step instructions.
+
 ## Quick Comparison
 
 ### Local Trusted (Default)

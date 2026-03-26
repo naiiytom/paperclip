@@ -1,0 +1,60 @@
+# Fly.io deployment configuration for Paperclip
+# https://fly.io/docs/reference/configuration/
+#
+# Quick start:
+#   fly launch --no-deploy        # create app, import this config
+#   fly volumes create paperclip_data --size 10 --region iad
+#   fly secrets set \
+#       DATABASE_URL="postgres://..." \
+#       BETTER_AUTH_SECRET="$(openssl rand -base64 32)" \
+#       PAPERCLIP_PUBLIC_URL="https://<app-name>.fly.dev" \
+#       ANTHROPIC_API_KEY="sk-ant-..." \
+#       OPENAI_API_KEY="sk-..."
+#   fly deploy
+
+app = "paperclip"        # replace with your chosen app name
+primary_region = "iad"   # change to the region nearest your users
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  HOST    = "0.0.0.0"
+  PORT    = "3100"
+  SERVE_UI = "true"
+  PAPERCLIP_HOME             = "/paperclip"
+  PAPERCLIP_DEPLOYMENT_MODE  = "authenticated"
+  PAPERCLIP_DEPLOYMENT_EXPOSURE = "public"
+  # PAPERCLIP_PUBLIC_URL is set via fly secrets (it changes per app name)
+
+[http_service]
+  internal_port = 3100
+  force_https   = true
+  auto_stop_machines  = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type       = "requests"
+    hard_limit = 200
+    soft_limit = 150
+
+[[vm]]
+  memory = "1gb"
+  cpu_kind = "shared"
+  cpus = 1
+
+[[mounts]]
+  source      = "paperclip_data"
+  destination = "/paperclip"
+  initial_size = "10gb"
+
+[checks]
+  [checks.health]
+    grace_period = "30s"
+    interval     = "30s"
+    method       = "GET"
+    path         = "/api/health"
+    port         = 3100
+    timeout      = "5s"
+    type         = "http"
